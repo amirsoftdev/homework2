@@ -28,7 +28,6 @@ public class FileProcessor {
         final File file = new File(processingFileName);
 
         Exchanger<List<Pair<String, Integer>>> exchanger = new Exchanger<>();
-        LineProcessor<Integer> lineProcessor = new LineCounterProcessor();
         Phaser phaser = new Phaser(CHUNK_SIZE);
 
         Thread writerThread = new Thread(new FileWriter(resultFileName, exchanger));
@@ -45,11 +44,16 @@ public class FileProcessor {
                     String line = scanner.nextLine();
                     lineList.add(line);
                 }
+
+                if (lineList.size() >= CHUNK_SIZE) {
+                    phaser.arriveAndDeregister();
+                }
+
                 for (int i = 0; i < lineList.size(); i++) {
 
                     int counter = i;
                     executorService.submit(() -> {
-                        resultPairList.set(counter, lineProcessor.process(lineList.get(counter)));
+                        resultPairList.set(counter, new LineCounterProcessor().process(lineList.get(counter)));
                     });
 
                     phaser.arrive();
