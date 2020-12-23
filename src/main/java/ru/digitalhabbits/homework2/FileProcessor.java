@@ -1,11 +1,18 @@
 package ru.digitalhabbits.homework2;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 
 import javax.annotation.Nonnull;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
+import java.util.concurrent.Exchanger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Phaser;
 
 import static java.lang.Runtime.getRuntime;
 import static java.nio.charset.Charset.defaultCharset;
@@ -19,21 +26,45 @@ public class FileProcessor {
         checkFileExists(processingFileName);
 
         final File file = new File(processingFileName);
-        // TODO: NotImplemented: запускаем FileWriter в отдельном потоке
+
+        Exchanger<List<Pair<String, Integer>>> exchanger = new Exchanger<>();
+        LineProcessor<Integer> lineProcessor = new LineCounterProcessor();
+        Phaser phaser = new Phaser(CHUNK_SIZE);
+
+        Thread writerThread = new Thread(new FileWriter(resultFileName, exchanger));
+        writerThread.start();
+
+        ExecutorService executorService = Executors.newFixedThreadPool(CHUNK_SIZE);
 
         try (final Scanner scanner = new Scanner(file, defaultCharset())) {
             while (scanner.hasNext()) {
-                // TODO: NotImplemented: вычитываем CHUNK_SIZE строк для параллельной обработки
+                List<Pair<String, Integer>> resultPairList = new ArrayList<>();
+                List<String> lineList = new ArrayList<>();
 
-                // TODO: NotImplemented: обрабатывать строку с помощью LineProcessor. Каждый поток обрабатывает свою строку.
+                while (lineList.size() < CHUNK_SIZE && scanner.hasNextLine()) {
+                    String line = scanner.nextLine();
+                    lineList.add(line);
+                }
+                for (int i = 0; i < lineList.size(); i++) {
 
-                // TODO: NotImplemented: добавить обработанные данные в результирующий файл
+                    int counter = i;
+                    executorService.submit(() -> {
+                        resultPairList.set(counter, lineProcessor.process(lineList.get(counter)));
+                    });
+
+                    phaser.arrive();
+                }
+
+                phaser.arriveAndAwaitAdvance();
+                exchanger.exchange(resultPairList);
             }
-        } catch (IOException exception) {
+
+        } catch (IOException | InterruptedException exception) {
             logger.error("", exception);
         }
 
-        // TODO: NotImplemented: остановить поток writerThread
+        writerThread.interrupt();
+        executorService.shutdown();
 
         logger.info("Finish main thread {}", Thread.currentThread().getName());
     }
@@ -45,3 +76,6 @@ public class FileProcessor {
         }
     }
 }
+
+
+
